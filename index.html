@@ -103,6 +103,24 @@
     border-radius: 8px; padding: 8px 10px; margin-top: 8px;
     white-space: pre-line;
   }
+
+  #zoomPanel {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  #zoomPanel button {
+    flex: none; width: 42px; height: 42px; padding: 0;
+    font-size: 22px; line-height: 1; border-radius: 8px;
+  }
+  #zoomSlider { flex: 1 1 auto; }
+  #zoomValue {
+    flex: none; width: 66px; text-align: right;
+    font-size: 13px; color: #eee; font-variant-numeric: tabular-nums;
+  }
+  #zoomUnsupported {
+    font-size: 13px; color: #888; text-align: center;
+    margin-bottom: 10px; letter-spacing: 0.3px;
+  }
   #httpsWarning {
     position: fixed; inset: 0; z-index: 999;
     background: #000; color: #fff;
@@ -143,9 +161,17 @@
       <div><span class="k">Rays used:</span> <span class="v" id="mRays">—</span></div>
     </div>
 
+    <div id="zoomPanel" class="hidden">
+      <button id="btnZoomOut" aria-label="Zoom out">−</button>
+      <input type="range" id="zoomSlider" min="1" max="1" step="0.1" value="1">
+      <button id="btnZoomIn" aria-label="Zoom in">+</button>
+      <span id="zoomValue">1.0×</span>
+    </div>
+    <div id="zoomUnsupported" class="hidden">ZOOM NOT SUPPORTED</div>
+
     <div class="btnrow">
       <button class="primary" id="btnLock" disabled>LOCK CAMERA POSITION</button>
-      <button id="btnCapture" disabled>CAPTURE TEST IMAGE</button>
+      <button id="btnCapture" disabled>CAPTURE & EXPORT</button>
     </div>
 
     <div id="smallControls">
@@ -211,6 +237,12 @@
   var rotLabel = document.getElementById('rotLabel');
   var lockedPanel = document.getElementById('lockedPanel');
   var captureNote = document.getElementById('captureNote');
+  var zoomPanel = document.getElementById('zoomPanel');
+  var zoomSlider = document.getElementById('zoomSlider');
+  var zoomValueEl = document.getElementById('zoomValue');
+  var btnZoomOut = document.getElementById('btnZoomOut');
+  var btnZoomIn = document.getElementById('btnZoomIn');
+  var zoomUnsupportedEl = document.getElementById('zoomUnsupported');
 
   // ---------------------------------------------------------------------
   // Rotation handling.
@@ -289,14 +321,7 @@
       video.srcObject = stream;
       return video.play();
     }).then(function () {
-      // Best-effort: make sure no digital zoom is applied, ignore if unsupported.
-      try {
-        var track = video.srcObject.getVideoTracks()[0];
-        var caps = track.getCapabilities ? track.getCapabilities() : null;
-        if (caps && caps.zoom) {
-          track.applyConstraints({ advanced: [{ zoom: caps.zoom.min || 1 }] }).catch(function () {});
-        }
-      } catch (e) { /* not supported on this browser, ignore */ }
+      initZoomControl();
 
       videoReady = true;
       setStatus('init', 'ESTABLISHING VIDEO…');
@@ -309,6 +334,90 @@
         ' — check camera permission for this site in Settings.';
     });
   }
+
+  // ---------------------------------------------------------------------
+  // Zoom control — hardware/optical zoom via the MediaStreamTrack's own
+  // zoom capability ONLY. There is deliberately no digital-zoom fallback
+  // here (no canvas cropping/scaling of the frame): if the track doesn't
+  // expose a zoom capability, the control is hidden and "ZOOM NOT
+  // SUPPORTED" is shown instead, per the requirement not to fake it.
+  //
+  // Because the zoom is applied at the track level, every consumer of the
+  // video element downstream (the live preview, the board-detection ray
+  // cast, and CAPTURE & EXPORT) already sees the zoomed frame with no
+  // changes needed there — they all just keep reading video.videoWidth/
+  // videoHeight and the current frame, which the browser now delivers
+  // pre-zoomed at the SAME stream resolution as before (optical/hardware
+  // zoom does not change the reported track resolution). The zoom value
+  // itself is only ever kept in a JS variable for the life of this page
+  // (currentZoomValue) — never written to storage.
+  // ---------------------------------------------------------------------
+  var zoomTrack = null;
+  var zoomCaps = null;         // {min, max, step} from getCapabilities(), or null if unsupported
+  var currentZoomValue = 1;
+
+  function initZoomControl() {
+    zoomTrack = null;
+    zoomCaps = null;
+    try {
+      var track = video.srcObject.getVideoTracks()[0];
+      var caps = track.getCapabilities ? track.getCapabilities() : null;
+      if (caps && caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number' && caps.zoom.max > caps.zoom.min) {
+        zoomTrack = track;
+        zoomCaps = { min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0 };
+        var settings = track.getSettings ? track.getSettings() : {};
+        var startZoom = (typeof settings.zoom === 'number') ? settings.zoom : zoomCaps.min;
+        showZoomControl(zoomCaps, startZoom);
+        applyZoom(startZoom, true);
+        return;
+      }
+    } catch (e) { /* fall through to unsupported */ }
+    showZoomUnsupported();
+  }
+
+  function showZoomControl(caps, initialValue) {
+    zoomPanel.classList.remove('hidden');
+    zoomUnsupportedEl.classList.add('hidden');
+    var step = caps.step > 0 ? caps.step : Math.max((caps.max - caps.min) / 20, 0.01);
+    zoomSlider.min = caps.min;
+    zoomSlider.max = caps.max;
+    zoomSlider.step = step;
+    zoomSlider.value = initialValue;
+    updateZoomDisplay(initialValue);
+  }
+
+  function showZoomUnsupported() {
+    zoomPanel.classList.add('hidden');
+    zoomUnsupportedEl.classList.remove('hidden');
+  }
+
+  function updateZoomDisplay(value) {
+    currentZoomValue = value;
+    zoomSlider.value = value;
+    zoomValueEl.textContent = (Math.round(value * 100) / 100) + '×';
+  }
+
+  function applyZoom(value, isInitial) {
+    if (!zoomTrack || !zoomCaps) return;
+    var clamped = Math.min(zoomCaps.max, Math.max(zoomCaps.min, value));
+    zoomTrack.applyConstraints({ advanced: [{ zoom: clamped }] }).then(function () {
+      updateZoomDisplay(clamped);
+    }).catch(function () {
+      if (!isInitial) zoomSlider.value = currentZoomValue; // revert UI to last known-good value
+    });
+  }
+
+  zoomSlider.addEventListener('input', function () {
+    applyZoom(parseFloat(zoomSlider.value));
+  });
+  btnZoomOut.addEventListener('click', function () {
+    var step = parseFloat(zoomSlider.step) || 0.1;
+    applyZoom(currentZoomValue - step);
+  });
+  btnZoomIn.addEventListener('click', function () {
+    var step = parseFloat(zoomSlider.step) || 0.1;
+    applyZoom(currentZoomValue + step);
+  });
 
   // ---------------------------------------------------------------------
   // Board detection: ~360 radial rays from the frame centre, looking for
@@ -612,8 +721,11 @@
       boardCentrePercent: Math.round(centreFracX * 100) + '%, ' + Math.round(centreFracY * 100) + '%',
       boardDiameterFractionOfWidth: round3(sizeFrac),
       boardDiameterPercent: Math.round(sizeFrac * 100) + '%',
-      raysUsed: lastDetection.usedRays + ' / ' + lastDetection.totalRays
+      raysUsed: lastDetection.usedRays + ' / ' + lastDetection.totalRays,
+      zoom: zoomCaps ? (Math.round(currentZoomValue * 100) / 100) : null
     };
+
+    var zoomLine = zoomCaps ? (record.zoom + '× (range ' + zoomCaps.min + '–' + zoomCaps.max + ')') : 'not supported on this camera';
 
     lockedPanel.classList.remove('hidden');
     lockedPanel.textContent =
@@ -622,6 +734,7 @@
       'Camera resolution (native): ' + record.cameraResolutionNative + '\n' +
       'Rotation correction applied: ' + record.rotationAppliedDeg + '°\n' +
       'Oriented resolution: ' + record.orientedResolution + ' (' + record.orientation + ')\n' +
+      'Zoom: ' + zoomLine + '\n' +
       'Board centre: ' + record.boardCentrePercent + ' of frame\n' +
       'Board diameter: ' + record.boardDiameterPercent + ' of frame width\n' +
       'Detection confidence: ' + record.raysUsed + ' rays agreed\n\n' +
@@ -632,13 +745,50 @@
   function round3(n) { return Math.round(n * 1000) / 1000; }
 
   // ---------------------------------------------------------------------
-  // CAPTURE TEST IMAGE — full native resolution, no resizing
+  // CAPTURE & EXPORT — full native resolution, no resizing.
+  //
+  // Deliberately capture -> export/share -> discard, never capture ->
+  // save -> export later:
+  //   - the JPEG is built in an in-memory Blob only; nothing is written to
+  //     Photos, localStorage, IndexedDB, Cache Storage, the File System
+  //     Access API, or any server.
+  //   - it is handed to the OS's own share sheet (Web Share API with a
+  //     File, when the browser supports sharing files — this is the more
+  //     reliable path on iOS Safari) or, where that's unavailable, to the
+  //     normal <a download> mechanism.
+  //   - once that handoff has happened, the Blob's object URL is revoked
+  //     and every reference to the image data is local to this handler
+  //     (blob, file, captureCanvas's pixel buffer) and is dropped
+  //     immediately after — nothing is kept in an array, a variable
+  //     outside this function, or any history/cache. Every capture is
+  //     independent; capturing 10 images retains none of them here.
+  //   - what the OS does with a file the user explicitly chooses to save
+  //     via that share sheet/download is outside this page's control and
+  //     is not a copy this page is keeping.
   // ---------------------------------------------------------------------
+  var captureBusy = false;
+  var CAPTURE_IDLE_LABEL = 'CAPTURE & EXPORT';
+
+  function setCaptureLabel(text) { btnCapture.textContent = text; }
+
+  function captureFinish(disableAfter) {
+    captureBusy = false;
+    btnCapture.disabled = !!disableAfter;
+    // Drop the offscreen canvas's pixel buffer as soon as practical.
+    captureCanvas.width = 0;
+    captureCanvas.height = 0;
+  }
+
   btnCapture.addEventListener('click', function () {
-    if (!video.videoWidth) return;
+    if (captureBusy || !video.videoWidth) return;
+    captureBusy = true;
+    btnCapture.disabled = true;
+    setCaptureLabel('EXPORTING…');
+
     var nativeW = video.videoWidth, nativeH = video.videoHeight;
     var rotDeg = effectiveRotationDeg(nativeW, nativeH);
     var oriented = orientedDims(nativeW, nativeH, rotDeg);
+    var captureTime = new Date();
 
     captureCanvas.width = oriented.w;
     captureCanvas.height = oriented.h;
@@ -647,28 +797,92 @@
     captureCanvas.toBlob(function (blob) {
       if (!blob) {
         captureNote.classList.remove('hidden');
-        captureNote.textContent = 'Capture failed — try again.';
+        captureNote.textContent = 'No image data produced — try again.';
+        setCaptureLabel('EXPORT FAILED — TRY AGAIN');
+        captureFinish(false);
         return;
       }
-      var ts = new Date();
+
       var pad = function (n) { return (n < 10 ? '0' : '') + n; };
       var name = 'dartfeed_v04_setup_test_' +
-        ts.getFullYear() + pad(ts.getMonth() + 1) + pad(ts.getDate()) + '_' +
-        pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds()) + '.jpg';
+        captureTime.getFullYear() + pad(captureTime.getMonth() + 1) + pad(captureTime.getDate()) + '_' +
+        pad(captureTime.getHours()) + pad(captureTime.getMinutes()) + pad(captureTime.getSeconds()) + '.jpg';
+      var dimsW = oriented.w, dimsH = oriented.h, sizeKB = Math.round(blob.size / 1024);
 
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      function onExported(via) {
+        blob = null; // drop the only remaining reference in this scope
+        captureFinish(false);
+        setCaptureLabel('EXPORTED ✓');
+        captureNote.classList.remove('hidden');
+        captureNote.textContent =
+          'EXPORTED — ' + dimsW + ' × ' + dimsH + '\n' +
+          name + '  (~' + sizeKB + ' KB, native resolution, unresized)\n' +
+          'Handed to ' + via + ' — not retained by this page.';
+        setTimeout(function () {
+          if (!captureBusy) setCaptureLabel(CAPTURE_IDLE_LABEL);
+        }, 1800);
+      }
 
-      captureNote.classList.remove('hidden');
-      captureNote.textContent =
-        'Saved: ' + name + '\n' +
-        'Dimensions: ' + oriented.w + ' × ' + oriented.h + ' (native, unresized)\n' +
-        'File size: ~' + Math.round(blob.size / 1024) + ' KB';
+      function onExportFailed(reason) {
+        blob = null;
+        captureFinish(false);
+        setCaptureLabel('EXPORT FAILED — TRY AGAIN');
+        captureNote.classList.remove('hidden');
+        captureNote.textContent = 'Export failed' + (reason ? ' (' + reason + ')' : '') + ' — nothing was saved by this page. Try again.';
+      }
+
+      function exportViaDownload() {
+        var url = URL.createObjectURL(blob);
+        try {
+          var a = document.createElement('a');
+          a.href = url; a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } catch (e) {
+          URL.revokeObjectURL(url);
+          onExportFailed(e && e.message);
+          return;
+        }
+        // Revoke as soon as practical once the browser has had a chance
+        // to pick up the download.
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+        onExported('Download');
+      }
+
+      // Prefer the Web Share API with an actual File — the more reliable
+      // export path on iOS Safari — falling back to <a download> only
+      // where file sharing isn't supported. Either way this is a single
+      // capture -> handoff -> discard step, never a save-then-export.
+      var canShareFile = false;
+      var file = null;
+      try {
+        file = new File([blob], name, { type: 'image/jpeg' });
+        canShareFile = !!(navigator.canShare && navigator.share && navigator.canShare({ files: [file] }));
+      } catch (e) { canShareFile = false; }
+
+      if (canShareFile) {
+        navigator.share({ files: [file], title: name }).then(function () {
+          file = null;
+          onExported('Share sheet');
+        }).catch(function (err) {
+          file = null;
+          if (err && err.name === 'AbortError') {
+            // User cancelled the share sheet themselves — nothing was
+            // exported and nothing was saved by this page either; just
+            // go back to idle without claiming success or failure.
+            blob = null;
+            captureFinish(false);
+            setCaptureLabel(CAPTURE_IDLE_LABEL);
+            return;
+          }
+          // Do not silently fall back to storing the image locally —
+          // fall back to the explicit download handoff instead.
+          exportViaDownload();
+        });
+      } else {
+        exportViaDownload();
+      }
     }, 'image/jpeg', 0.92);
   });
 
