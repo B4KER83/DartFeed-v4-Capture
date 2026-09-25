@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>DartFeed v0.4 Camera Setup</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #000; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+  }
+  #app {
+    display: flex; flex-direction: column;
+    width: 100%; height: 100%;
+    height: 100dvh;
+  }
+  #stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #000;
+    overflow: hidden;
+  }
+  #viewCanvas {
+    max-width: 100%; max-height: 100%;
+    width: auto; height: auto;
+    background: #111;
+  }
+  video { display: none; }
+
+  #hint {
+    position: absolute; top: 8px; left: 8px; right: 8px;
+    text-align: center;
+    font-size: 13px;
+    color: #9aa;
+    pointer-events: none;
+  }
+
+  #panel {
+    flex: 0 0 auto;
+    background: #0d0d0d;
+    border-top: 1px solid #262626;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  #statusBig {
+    font-size: 22px;
+    font-weight: 700;
+    text-align: center;
+    padding: 10px 6px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    letter-spacing: 0.3px;
+  }
+  .st-ok    { background: #123d1f; color: #4ade80; border: 1px solid #1f6d34; }
+  .st-warn  { background: #3d2f0e; color: #fbbf24; border: 1px solid #6d5416; }
+  .st-bad   { background: #3d1414; color: #f87171; border: 1px solid #6d1f1f; }
+  .st-init  { background: #14243d; color: #7dd3fc; border: 1px solid #1f426d; }
+
+  #metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 10px;
+    font-size: 13px;
+    color: #ccc;
+    margin-bottom: 10px;
+  }
+  #metrics div span.k { color: #888; }
+  #metrics div span.v { color: #eee; font-variant-numeric: tabular-nums; }
+
+  .btnrow { display: flex; gap: 8px; margin-bottom: 8px; }
+  button {
+    flex: 1 1 0;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 14px 8px;
+    border-radius: 10px;
+    border: none;
+    background: #1f2937;
+    color: #fff;
+    cursor: pointer;
+  }
+  button:active { background: #2a3446; }
+  button.primary { background: #1e5c8a; }
+  button.primary:active { background: #226c9f; }
+  button:disabled { opacity: 0.4; }
+  button.flash { background: #16a34a; }
+
+  #smallControls {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: #777; margin-top: 2px;
+  }
+  #smallControls button.link {
+    background: none; flex: none; padding: 4px 8px; font-size: 12px;
+    font-weight: 400; color: #7dd3fc; text-decoration: underline;
+  }
+
+  #imageCountPanel, #captureNote {
+    font-size: 12px; color: #9aa;
+    background: #111827; border: 1px solid #1f2937;
+    border-radius: 8px; padding: 8px 10px; margin-top: 8px;
+    white-space: pre-line;
+  }
+  #imageCountPanel {
+    font-size: 14px; color: #eee; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #sessionStatus {
+    font-size: 13px; color: #7dd3fc; text-align: center;
+    margin: -2px 0 4px;
+  }
+  #sessionSizeWarning {
+    font-size: 12px; color: #fbbf24; text-align: center;
+    margin: -2px 0 8px;
+  }
+
+  #zoomPanel {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  #zoomPanel button {
+    flex: none; width: 42px; height: 42px; padding: 0;
+    font-size: 22px; line-height: 1; border-radius: 8px;
+  }
+  #zoomSlider { flex: 1 1 auto; }
+  #zoomValue {
+    flex: none; width: 66px; text-align: right;
+    font-size: 13px; color: #eee; font-variant-numeric: tabular-nums;
+  }
+  #zoomUnsupported {
+    font-size: 13px; color: #888; text-align: center;
+    margin-bottom: 10px; letter-spacing: 0.3px;
+  }
+  #httpsWarning {
+    position: fixed; inset: 0; z-index: 999;
+    background: #000; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; text-align: center; font-size: 16px; line-height: 1.5;
+  }
+  #httpsWarning code { color: #7dd3fc; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="httpsWarning" class="hidden">
+  <div>
+    <p><strong>Camera access needs a secure context.</strong></p>
+    <p>iOS Safari will only grant camera access on an <code>https://</code> page
+    (or <code>localhost</code>) — not a plain file opened directly from disk or iCloud.</p>
+    <p>Host this file somewhere with HTTPS (GitHub Pages, Cloudflare Pages, or any
+    static HTTPS host you already use) and open it from that URL.</p>
+  </div>
+</div>
+
+<div id="app">
+  <div id="stage">
+    <canvas id="viewCanvas"></canvas>
+    <div id="hint">Position the phone so the whole board is visible</div>
+  </div>
+
+  <div id="panel">
+    <div id="statusBig" class="st-init">INITIALIZING CAMERA…</div>
+
+    <div id="metrics">
+      <div><span class="k">Camera:</span> <span class="v" id="mRes">—</span></div>
+      <div><span class="k">Orientation:</span> <span class="v" id="mOrient">—</span></div>
+      <div><span class="k">Board detected:</span> <span class="v" id="mDetected">—</span></div>
+      <div><span class="k">Board centre:</span> <span class="v" id="mCentre">—</span></div>
+      <div><span class="k">Board size:</span> <span class="v" id="mSize">—</span></div>
+      <div><span class="k">Rays used:</span> <span class="v" id="mRays">—</span></div>
+    </div>
+
+    <div id="zoomPanel" class="hidden">
+      <button id="btnZoomOut" aria-label="Zoom out">−</button>
+      <input type="range" id="zoomSlider" min="1" max="1" step="0.1" value="1">
+      <button id="btnZoomIn" aria-label="Zoom in">+</button>
+      <span id="zoomValue">1.0×</span>
+    </div>
+    <div id="zoomUnsupported" class="hidden">ZOOM NOT SUPPORTED</div>
+
+    <div class="btnrow">
+      <button id="btnSession">START SESSION</button>
+    </div>
+    <div class="btnrow">
+      <button id="btnCapture" disabled>CAPTURE</button>
+    </div>
+    <div id="sessionStatus" class="hidden"></div>
+    <div id="sessionSizeWarning" class="hidden"></div>
+
+    <div id="smallControls">
+      <span id="rotLabel">Rotation correction: auto (—)</span>
+      <button class="link" id="btnRotate">flip if preview looks sideways/mirrored</button>
+    </div>
+
+    <div id="imageCountPanel">Images captured: 0</div>
+    <div id="captureNote" class="hidden"></div>
+  </div>
+</div>
+
+<video id="video" autoplay playsinline muted></video>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------------------------------------------------------------------
+  // Secure-context check (iOS Safari requires https/localhost for camera)
+  // ---------------------------------------------------------------------
+  var isSecure = window.isSecureContext || location.protocol === 'https:' ||
+                 location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (!isSecure) {
+    document.getElementById('httpsWarning').classList.remove('hidden');
+    return;
+  }
+
+  // ---------------------------------------------------------------------
+  // Config
+  // ---------------------------------------------------------------------
+  var PREVIEW_MAX_DIM = 900;   // backing resolution of the live preview canvas (display only)
+  var DETECT_MAX_DIM = 360;    // resolution used for the board-detection ray cast
+  var DETECT_INTERVAL_MS = 180; // how often we re-run detection (not every frame)
+  var N_RAYS = 360;
+  var CONTRAST_THRESHOLD = 16;      // min brightness jump (0-255) to count as a real edge
+  var MIN_INLIER_FRACTION = 0.25;   // need at least this fraction of rays to agree
+  var SIZE_MIN_FRAC = 0.35;         // board diameter / frame width, below this = too far
+  var SIZE_CLIP_MARGIN = 1.15;      // extra margin factor around ring for "fully visible" check
+  var CENTER_TOLERANCE = 0.08;      // fraction of frame width/height for "reasonably centred"
+  var MIN_LONG_EDGE = 1000;         // resolution floor for "acceptable"
+
+  var video = document.getElementById('video');
+  var viewCanvas = document.getElementById('viewCanvas');
+  var viewCtx = viewCanvas.getContext('2d');
+
+  var detectCanvas = document.createElement('canvas');
+  var detectCtx = detectCanvas.getContext('2d', { willReadFrequently: true });
+
+  var captureCanvas = document.createElement('canvas');
+  var captureCtx = captureCanvas.getContext('2d');
+
+  var statusEl = document.getElementById('statusBig');
+  var mRes = document.getElementById('mRes');
+  var mOrient = document.getElementById('mOrient');
+  var mDetected = document.getElementById('mDetected');
+  var mCentre = document.getElementById('mCentre');
+  var mSize = document.getElementById('mSize');
+  var mRays = document.getElementById('mRays');
+  var btnCapture = document.getElementById('btnCapture');
+  var btnRotate = document.getElementById('btnRotate');
+  var rotLabel = document.getElementById('rotLabel');
+  var imageCountPanel = document.getElementById('imageCountPanel');
+  var captureNote = document.getElementById('captureNote');
+  var zoomPanel = document.getElementById('zoomPanel');
+  var zoomSlider = document.getElementById('zoomSlider');
+  var zoomValueEl = document.getElementById('zoomValue');
+  var btnZoomOut = document.getElementById('btnZoomOut');
+  var btnZoomIn = document.getElementById('btnZoomIn');
+  var zoomUnsupportedEl = document.getElementById('zoomUnsupported');
+  var btnSession = document.getElementById('btnSession');
+  var sessionStatusEl = document.getElementById('sessionStatus');
+  var sessionSizeWarningEl = document.getElementById('sessionSizeWarning');
+
+  // ---------------------------------------------------------------------
+  // Rotation handling.
+  //
+  // Some mobile browsers (notably iOS Safari) can deliver the camera's
+  // native LANDSCAPE sensor frame even when the phone is held in portrait
+  // and portrait dimensions were requested — width/height constraints are
+  // only "ideal" hints, not guarantees. If that happens here uncorrected,
+  // every measurement and captured image would be sideways.
+  //
+  // rotationMode: 'auto' picks -90 when the raw frame is landscape
+  // (nativeW > nativeH) and 0 otherwise -- -90 is what this project has
+  // previously confirmed as the correct direction for this camera/browser
+  // combination. A manual override cycles through the options in case a
+  // different device/browser needs a different value; this can't be
+  // verified from here without the actual phone in hand, so it's exposed
+  // as a one-tap fallback rather than assumed correct.
+  // ---------------------------------------------------------------------
+  var ROTATION_OPTIONS = [null, 0, 90, -90, 180]; // null = auto
+  var rotationOverrideIndex = 0;
+
+  function effectiveRotationDeg(nativeW, nativeH) {
+    var override = ROTATION_OPTIONS[rotationOverrideIndex];
+    if (override !== null) return override;
+    return (nativeW > nativeH) ? -90 : 0;
+  }
+
+  function orientedDims(nativeW, nativeH, rotDeg) {
+    var swapped = (Math.abs(rotDeg) === 90);
+    return { w: swapped ? nativeH : nativeW, h: swapped ? nativeW : nativeH };
+  }
+
+  // Draws the current video frame into ctx at the given output size,
+  // applying the rotation. outW/outH must already be the ORIENTED
+  // (post-rotation) target dimensions.
+  function drawRotatedFrame(ctx, outW, outH, rotDeg) {
+    var nativeW = video.videoWidth, nativeH = video.videoHeight;
+    ctx.save();
+    ctx.clearRect(0, 0, outW, outH);
+    if (rotDeg === 0) {
+      ctx.drawImage(video, 0, 0, outW, outH);
+    } else {
+      ctx.translate(outW / 2, outH / 2);
+      ctx.rotate(rotDeg * Math.PI / 180);
+      // after rotation, draw the native-oriented frame centred on the
+      // rotated origin at NATIVE aspect scaled to fit the swapped box
+      var drawW, drawH;
+      if (Math.abs(rotDeg) === 90) { drawW = outH; drawH = outW; }
+      else { drawW = outW; drawH = outH; }
+      ctx.drawImage(video, -drawW / 2, -drawH / 2, drawW, drawH);
+    }
+    ctx.restore();
+  }
+
+  btnRotate.addEventListener('click', function () {
+    rotationOverrideIndex = (rotationOverrideIndex + 1) % ROTATION_OPTIONS.length;
+    var opt = ROTATION_OPTIONS[rotationOverrideIndex];
+    rotLabel.textContent = 'Rotation correction: ' + (opt === null ? 'auto' : opt + '° (manual)');
+  });
+
+  // ---------------------------------------------------------------------
+  // Camera start
+  // ---------------------------------------------------------------------
+  var videoReady = false;
+
+  function startCamera() {
+    var constraints = {
+      audio: false,
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 4096 },
+        height: { ideal: 4096 }
+      }
+    };
+    navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+      video.srcObject = stream;
+      return video.play();
+    }).then(function () {
+      initZoomControl();
+
+      videoReady = true;
+      setStatus('init', 'ESTABLISHING VIDEO…');
+      requestAnimationFrame(renderLoop);
+      setInterval(runDetectionTick, DETECT_INTERVAL_MS);
+    }).catch(function (err) {
+      setStatus('bad', 'CAMERA ACCESS FAILED');
+      document.getElementById('hint').textContent =
+        'Error: ' + (err && err.message ? err.message : err) +
+        ' — check camera permission for this site in Settings.';
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Zoom control — hardware/optical zoom via the MediaStreamTrack's own
+  // zoom capability ONLY. There is deliberately no digital-zoom fallback
+  // here (no canvas cropping/scaling of the frame): if the track doesn't
+  // expose a zoom capability, the control is hidden and "ZOOM NOT
+  // SUPPORTED" is shown instead, per the requirement not to fake it.
+  //
+  // Because the zoom is applied at the track level, every consumer of the
+  // video element downstream (the live preview, the board-detection ray
+  // cast, and CAPTURE & EXPORT) already sees the zoomed frame with no
+  // changes needed there — they all just keep reading video.videoWidth/
+  // videoHeight and the current frame, which the browser now delivers
+  // pre-zoomed at the SAME stream resolution as before (optical/hardware
+  // zoom does not change the reported track resolution). The zoom value
+  // itself is only ever kept in a JS variable for the life of this page
+  // (currentZoomValue) — never written to storage.
+  // ---------------------------------------------------------------------
+  var zoomTrack = null;
+  var zoomCaps = null;         // {min, max, step} from getCapabilities(), or null if unsupported
+  var currentZoomValue = 1;
+
+  function initZoomControl() {
+    zoomTrack = null;
+    zoomCaps = null;
+    try {
+      var track = video.srcObject.getVideoTracks()[0];
+      var caps = track.getCapabilities ? track.getCapabilities() : null;
+      if (caps && caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number' && caps.zoom.max > caps.zoom.min) {
+        zoomTrack = track;
+        zoomCaps = { min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0 };
+        var settings = track.getSettings ? track.getSettings() : {};
+        var startZoom = (typeof settings.zoom === 'number') ? settings.zoom : zoomCaps.min;
+        showZoomControl(zoomCaps, startZoom);
+        applyZoom(startZoom, true);
+        return;
+      }
+    } catch (e) { /* fall through to unsupported */ }
+    showZoomUnsupported();
+  }
+
+  function showZoomControl(caps, initialValue) {
+    zoomPanel.classList.remove('hidden');
+    zoomUnsupportedEl.classList.add('hidden');
+    var step = caps.step > 0 ? caps.step : Math.max((caps.max - caps.min) / 20, 0.01);
+    zoomSlider.min = caps.min;
+    zoomSlider.max = caps.max;
+    zoomSlider.step = step;
+    zoomSlider.value = initialValue;
+    updateZoomDisplay(initialValue);
+  }
+
+  function showZoomUnsupported() {
+    zoomPanel.classList.add('hidden');
+    zoomUnsupportedEl.classList.remove('hidden');
+  }
+
+  function updateZoomDisplay(value) {
+    currentZoomValue = value;
+    zoomSlider.value = value;
+    zoomValueEl.textContent = (Math.round(value * 100) / 100) + '×';
+  }
+
+  function applyZoom(value, isInitial) {
+    if (!zoomTrack || !zoomCaps) return;
+    var clamped = Math.min(zoomCaps.max, Math.max(zoomCaps.min, value));
+    zoomTrack.applyConstraints({ advanced: [{ zoom: clamped }] }).then(function () {
+      updateZoomDisplay(clamped);
+    }).catch(function () {
+      if (!isInitial) zoomSlider.value = currentZoomValue; // revert UI to last known-good value
+    });
+  }
+
+  zoomSlider.addEventListener('input', function () {
+    applyZoom(parseFloat(zoomSlider.value));
+  });
+  btnZoomOut.addEventListener('click', function () {
+    var step = parseFloat(zoomSlider.step) || 0.1;
+    applyZoom(currentZoomValue - step);
+  });
+  btnZoomIn.addEventListener('click', function () {
+    var step = parseFloat(zoomSlider.step) || 0.1;
+    applyZoom(currentZoomValue + step);
+  });
+
+  // ---------------------------------------------------------------------
+  // Board detection: ~360 radial rays from the frame centre, looking for
+  // the strongest sustained dark->light transition on each ray (the
+  // cabinet's outer black ring against the wall behind it). Outlier rays
+  // are rejected by robust median filtering, then the surviving points
+  // are used to refit the true centre/radius with a least-squares circle
+  // fit (Kasa method) rather than trusting the initial centre guess.
+  // ---------------------------------------------------------------------
+  function luminance(data, idx) {
+    return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+  }
+
+  function detectBoard(imgData, w, h) {
+    var data = imgData.data;
+    var cx0 = w / 2, cy0 = h / 2;
+    var rMin = 0.04 * Math.min(w, h);
+    var rMax = 0.49 * Math.min(w, h);
+    var step = Math.max(1, (rMax - rMin) / 140);
+    var win = 4;
+
+    var points = [];
+    var radii = [];
+
+    for (var i = 0; i < N_RAYS; i++) {
+      var theta = (i / N_RAYS) * Math.PI * 2;
+      var dx = Math.cos(theta), dy = Math.sin(theta);
+
+      var samples = [];
+      var coords = [];
+      for (var r = rMin; r <= rMax; r += step) {
+        var x = Math.round(cx0 + dx * r);
+        var y = Math.round(cy0 + dy * r);
+        if (x < 0 || x >= w || y < 0 || y >= h) break;
+        var idx = (y * w + x) * 4;
+        samples.push(luminance(data, idx));
+        coords.push({ x: x, y: y, r: r });
+      }
+      if (samples.length < win * 2 + 2) continue;
+
+      var bestDiff = -1, bestPos = -1;
+      for (var k = win; k < samples.length - win; k++) {
+        var behind = 0, ahead = 0;
+        for (var a = 0; a < win; a++) { behind += samples[k - 1 - a]; ahead += samples[k + a]; }
+        behind /= win; ahead /= win;
+        var diff = ahead - behind;
+        if (diff > bestDiff) { bestDiff = diff; bestPos = k; }
+      }
+
+      if (bestPos >= 0 && bestDiff > CONTRAST_THRESHOLD) {
+        var pt = coords[bestPos];
+        points.push(pt);
+        radii.push(pt.r);
+      }
+    }
+
+    if (radii.length < N_RAYS * MIN_INLIER_FRACTION) {
+      return { ok: false, totalRays: N_RAYS, usedRays: radii.length };
+    }
+
+    // robust median + MAD filtering
+    var sorted = radii.slice().sort(function (a, b) { return a - b; });
+    var median = sorted[Math.floor(sorted.length / 2)];
+    var absDevs = sorted.map(function (r) { return Math.abs(r - median); }).sort(function (a, b) { return a - b; });
+    var mad = absDevs[Math.floor(absDevs.length / 2)] || 1;
+    var tolerance = Math.max(0.15 * median, 3 * mad);
+
+    var inliers = [];
+    for (var j = 0; j < points.length; j++) {
+      if (Math.abs(points[j].r - median) <= tolerance) inliers.push(points[j]);
+    }
+
+    if (inliers.length < N_RAYS * MIN_INLIER_FRACTION) {
+      return { ok: false, totalRays: N_RAYS, usedRays: inliers.length };
+    }
+
+    // Kasa least-squares circle fit on inlier points to refine centre.
+    var n = inliers.length;
+    var sumX = 0, sumY = 0, sumXX = 0, sumYY = 0, sumXY = 0, sumXZ = 0, sumYZ = 0;
+    for (var m = 0; m < n; m++) {
+      var px = inliers[m].x, py = inliers[m].y, z = px * px + py * py;
+      sumX += px; sumY += py; sumXX += px * px; sumYY += py * py; sumXY += px * py;
+      sumXZ += px * z; sumYZ += py * z;
+    }
+    // Solve [ [sumXX sumXY sumX] [sumXY sumYY sumY] [sumX sumY n] ] * [A B C]' = [sumXZ sumYZ sumZ]'
+    var sumZ = sumXX + sumYY;
+    var M = [
+      [sumXX, sumXY, sumX],
+      [sumXY, sumYY, sumY],
+      [sumX, sumY, n]
+    ];
+    var Bv = [sumXZ, sumYZ, sumZ];
+    var sol = solve3x3(M, Bv);
+
+    var centre = { x: cx0, y: cy0 };
+    if (sol) {
+      centre = { x: sol[0] / 2, y: sol[1] / 2 };
+    }
+
+    var distSum = 0;
+    for (var p = 0; p < n; p++) {
+      var ddx = inliers[p].x - centre.x, ddy = inliers[p].y - centre.y;
+      distSum += Math.sqrt(ddx * ddx + ddy * ddy);
+    }
+    var radius = distSum / n;
+
+    return {
+      ok: true,
+      centre: centre,
+      radius: radius,
+      inlierPoints: inliers,
+      usedRays: inliers.length,
+      totalRays: N_RAYS
+    };
+  }
+
+  function solve3x3(M, b) {
+    var det = M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) -
+              M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) +
+              M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+    if (Math.abs(det) < 1e-9) return null;
+    function replaceCol(mat, col, vec) {
+      var out = [mat[0].slice(), mat[1].slice(), mat[2].slice()];
+      out[0][col] = vec[0]; out[1][col] = vec[1]; out[2][col] = vec[2];
+      return out;
+    }
+    function det3(mat) {
+      return mat[0][0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1]) -
+             mat[0][1] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0]) +
+             mat[0][2] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]);
+    }
+    var x = det3(replaceCol(M, 0, b)) / det;
+    var y = det3(replaceCol(M, 1, b)) / det;
+    var z = det3(replaceCol(M, 2, b)) / det;
+    return [x, y, z];
+  }
+
+  // ---------------------------------------------------------------------
+  // Status / positioning logic
+  // ---------------------------------------------------------------------
+  var lastDetection = null;   // in detectCanvas coordinate space
+  var lastOriented = { w: 0, h: 0 };
+  var lastRotDeg = 0;
+
+  function setStatus(kind, text) {
+    statusEl.className = 'st-' + kind;
+    statusEl.textContent = text;
+  }
+
+  function evaluatePosition(det, w, h, isPortrait, resOk) {
+    if (!isPortrait) return { status: 'warn', text: 'ROTATE PHONE TO PORTRAIT', ok: false };
+    if (!det || !det.ok) return { status: 'bad', text: 'NO RELIABLE BOARD DETECTION', ok: false };
+
+    var cx = det.centre.x, cy = det.centre.y, r = det.radius;
+    var effR = r * SIZE_CLIP_MARGIN;
+    var clippedLeft = (cx - effR) < 0;
+    var clippedRight = (cx + effR) > w;
+    var clippedTop = (cy - effR) < 0;
+    var clippedBottom = (cy + effR) > h;
+    var clipped = clippedLeft || clippedRight || clippedTop || clippedBottom;
+
+    var sizeFrac = (2 * r) / w;
+
+    if (clipped) {
+      return { status: 'warn', text: 'BOARD TOO CLOSE — MOVE PHONE BACK', ok: false };
+    }
+    if (sizeFrac < SIZE_MIN_FRAC) {
+      return { status: 'warn', text: 'BOARD TOO FAR', ok: false };
+    }
+
+    var dxFrac = (cx / w) - 0.5;
+    var dyFrac = (cy / h) - 0.5;
+    if (Math.abs(dxFrac) > CENTER_TOLERANCE) {
+      return { status: 'warn', text: dxFrac > 0 ? 'MOVE PHONE RIGHT' : 'MOVE PHONE LEFT', ok: false };
+    }
+    if (Math.abs(dyFrac) > CENTER_TOLERANCE) {
+      return { status: 'warn', text: dyFrac > 0 ? 'MOVE PHONE DOWN' : 'MOVE PHONE UP', ok: false };
+    }
+    if (!resOk) {
+      return { status: 'warn', text: 'CAMERA RESOLUTION TOO LOW', ok: false };
+    }
+    return { status: 'ok', text: 'CAMERA POSITION OK', ok: true };
+  }
+
+  // ---------------------------------------------------------------------
+  // Detection tick (runs on a timer, independent of the render loop)
+  // ---------------------------------------------------------------------
+  function runDetectionTick() {
+    if (!videoReady || !video.videoWidth) return;
+
+    var nativeW = video.videoWidth, nativeH = video.videoHeight;
+    var rotDeg = effectiveRotationDeg(nativeW, nativeH);
+    var oriented = orientedDims(nativeW, nativeH, rotDeg);
+    lastOriented = oriented;
+    lastRotDeg = rotDeg;
+
+    var scale = DETECT_MAX_DIM / Math.max(oriented.w, oriented.h);
+    var dw = Math.round(oriented.w * scale), dh = Math.round(oriented.h * scale);
+    detectCanvas.width = dw; detectCanvas.height = dh;
+    drawRotatedFrame(detectCtx, dw, dh, rotDeg);
+
+    var imgData;
+    try { imgData = detectCtx.getImageData(0, 0, dw, dh); }
+    catch (e) { return; }
+
+    var det = detectBoard(imgData, dw, dh);
+    lastDetection = det;
+
+    var isPortrait = oriented.h >= oriented.w;
+    var longEdge = Math.max(nativeW, nativeH);
+    var resOk = longEdge >= MIN_LONG_EDGE;
+
+    var evalResult = evaluatePosition(det, dw, dh, isPortrait, resOk);
+    setStatus(evalResult.status, evalResult.text);
+    btnCapture.disabled = !sessionActive || captureBusy;
+
+    mRes.textContent = nativeW + ' × ' + nativeH;
+    mOrient.textContent = isPortrait ? 'PORTRAIT' : 'LANDSCAPE';
+    mDetected.textContent = (det && det.ok) ? 'YES' : 'NO';
+    if (det && det.ok) {
+      mCentre.textContent = Math.round((det.centre.x / dw) * 100) + '%, ' + Math.round((det.centre.y / dh) * 100) + '%';
+      mSize.textContent = Math.round(((2 * det.radius) / dw) * 100) + '% of frame width';
+      mRays.textContent = det.usedRays + ' / ' + det.totalRays;
+    } else {
+      mCentre.textContent = '—';
+      mSize.textContent = '—';
+      mRays.textContent = det ? (det.usedRays + ' / ' + det.totalRays) : '—';
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Render loop: draws the live (rotated) preview + overlay every frame
+  // ---------------------------------------------------------------------
+  function renderLoop() {
+    if (videoReady && video.videoWidth) {
+      var nativeW = video.videoWidth, nativeH = video.videoHeight;
+      var rotDeg = effectiveRotationDeg(nativeW, nativeH);
+      var oriented = orientedDims(nativeW, nativeH, rotDeg);
+      var scale = PREVIEW_MAX_DIM / Math.max(oriented.w, oriented.h);
+      var pw = Math.round(oriented.w * scale), ph = Math.round(oriented.h * scale);
+
+      if (viewCanvas.width !== pw || viewCanvas.height !== ph) {
+        viewCanvas.width = pw; viewCanvas.height = ph;
+      }
+      drawRotatedFrame(viewCtx, pw, ph, rotDeg);
+      drawOverlay(pw, ph);
+    }
+    requestAnimationFrame(renderLoop);
+  }
+
+  function drawOverlay(pw, ph) {
+    var ctx = viewCtx;
+    // crosshair at frame centre
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pw / 2 - 14, ph / 2); ctx.lineTo(pw / 2 + 14, ph / 2);
+    ctx.moveTo(pw / 2, ph / 2 - 14); ctx.lineTo(pw / 2, ph / 2 + 14);
+    ctx.stroke();
+
+    if (lastDetection && lastDetection.ok && lastOriented.w) {
+      var sx = pw / detectCanvas.width, sy = ph / detectCanvas.height;
+      var cx = lastDetection.centre.x * sx, cy = lastDetection.centre.y * sy;
+      var r = lastDetection.radius * ((sx + sy) / 2);
+
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#4ade80';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+
+  // ---------------------------------------------------------------------
+  // Minimal, dependency-free ZIP writer (STORE method, i.e. no
+  // compression — JPEGs barely compress further anyway, and this keeps
+  // the whole page dependency-free with no library to fetch). Produces a
+  // standard, valid .zip any unzip tool (Files app, Windows, macOS) can
+  // open. CRC32 + local/central-directory headers per the PKZIP APPNOTE.
+  // ---------------------------------------------------------------------
+  var CRC_TABLE = (function () {
+    var table = new Uint32Array(256);
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+
+  function crc32(bytes) {
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function dosDateTime(date) {
+    var time = ((date.getHours() & 0x1f) << 11) | ((date.getMinutes() & 0x3f) << 5) | ((date.getSeconds() >> 1) & 0x1f);
+    var d = (((date.getFullYear() - 1980) & 0x7f) << 9) | (((date.getMonth() + 1) & 0xf) << 5) | (date.getDate() & 0x1f);
+    return { time: time, date: d };
+  }
+
+  function zipLocalHeader(nameBytes, crc, size, dt) {
+    var buf = new ArrayBuffer(30), v = new DataView(buf);
+    v.setUint32(0, 0x04034b50, true);
+    v.setUint16(4, 20, true); v.setUint16(6, 0, true); v.setUint16(8, 0, true);
+    v.setUint16(10, dt.time, true); v.setUint16(12, dt.date, true);
+    v.setUint32(14, crc, true); v.setUint32(18, size, true); v.setUint32(22, size, true);
+    v.setUint16(26, nameBytes.length, true); v.setUint16(28, 0, true);
+    return new Uint8Array(buf);
+  }
+
+  function zipCentralHeader(nameBytes, crc, size, dt, localOffset) {
+    var buf = new ArrayBuffer(46), v = new DataView(buf);
+    v.setUint32(0, 0x02014b50, true);
+    v.setUint16(4, 20, true); v.setUint16(6, 20, true); v.setUint16(8, 0, true); v.setUint16(10, 0, true);
+    v.setUint16(12, dt.time, true); v.setUint16(14, dt.date, true);
+    v.setUint32(16, crc, true); v.setUint32(20, size, true); v.setUint32(24, size, true);
+    v.setUint16(28, nameBytes.length, true); v.setUint16(30, 0, true); v.setUint16(32, 0, true);
+    v.setUint16(34, 0, true); v.setUint16(36, 0, true); v.setUint32(38, 0, true);
+    v.setUint32(42, localOffset, true);
+    return new Uint8Array(buf);
+  }
+
+  function zipEOCD(count, centralSize, centralOffset) {
+    var buf = new ArrayBuffer(22), v = new DataView(buf);
+    v.setUint32(0, 0x06054b50, true);
+    v.setUint16(4, 0, true); v.setUint16(6, 0, true);
+    v.setUint16(8, count, true); v.setUint16(10, count, true);
+    v.setUint32(12, centralSize, true); v.setUint32(16, centralOffset, true);
+    v.setUint16(20, 0, true);
+    return new Uint8Array(buf);
+  }
+
+  function buildZipBlob(entries) {
+    var encoder = new TextEncoder();
+    var localParts = [], centralParts = [], offset = 0;
+    return entries.reduce(function (chain, entry) {
+      return chain.then(function () { return entry.blob.arrayBuffer(); }).then(function (arrBuf) {
+        var data = new Uint8Array(arrBuf);
+        var nameBytes = encoder.encode(entry.name);
+        var crc = crc32(data);
+        var dt = dosDateTime(entry.date);
+        var lh = zipLocalHeader(nameBytes, crc, data.length, dt);
+        localParts.push(lh, nameBytes, data);
+        centralParts.push(zipCentralHeader(nameBytes, crc, data.length, dt, offset), nameBytes);
+        offset += lh.length + nameBytes.length + data.length;
+      });
+    }, Promise.resolve()).then(function () {
+      var centralOffset = offset;
+      var centralSize = 0;
+      for (var i = 0; i < centralParts.length; i++) centralSize += centralParts[i].length;
+      var eocd = zipEOCD(entries.length, centralSize, centralOffset);
+      return new Blob(localParts.concat(centralParts).concat([eocd]), { type: 'application/zip' });
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Session capture: START SESSION -> CAPTURE (repeatable) -> END SESSION
+  // & EXPORT ZIP.
+  //
+  // Captured JPEGs are held ONLY as in-memory Blobs in the sessionImages
+  // array for the life of the active session — never written to Photos,
+  // localStorage, IndexedDB, Cache Storage, the File System Access API,
+  // or any server. Ending the session bundles them into one ZIP (built
+  // in memory, see above) and hands that off exactly like a single image
+  // used to: the Web Share API with a File when the browser supports
+  // sharing files (the more reliable path on iOS Safari), falling back
+  // to a plain <a download> otherwise. Once that handoff succeeds, every
+  // captured Blob is dropped and the session resets — nothing is kept
+  // by this page after export. If the export is cancelled or fails, the
+  // captured images are kept so you can retry "End Session" without
+  // having to recapture the whole session.
+  // ---------------------------------------------------------------------
+  var sessionActive = false;
+  var sessionImages = [];   // [{name, blob, date}] — in-memory only, for the active session
+  var sessionSeq = 0;
+  var sessionStartTime = null;
+  var captureBusy = false;
+  var sessionTotalBytes = 0;   // sum of ACTUAL JPEG Blob sizes as captured, not estimated
+  var SESSION_SIZE_WARNING_BYTES = 500 * 1024 * 1024; // ~500 MB, matches the requested threshold
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function pad3(n) { return (n < 10 ? '00' : n < 100 ? '0' : '') + n; }
+  function timestampTag(d) {
+    return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '_' +
+      pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+  }
+
+  function formatBytes(bytes) {
+    var mb = bytes / (1024 * 1024);
+    if (mb < 10) return mb.toFixed(1) + ' MB';
+    return Math.round(mb) + ' MB';
+  }
+
+  function updateSessionStatus() {
+    if (!sessionActive && sessionImages.length === 0) {
+      sessionStatusEl.classList.add('hidden');
+      sessionSizeWarningEl.classList.add('hidden');
+      return;
+    }
+    sessionStatusEl.classList.remove('hidden');
+    var sizeText = formatBytes(sessionTotalBytes);
+    sessionStatusEl.textContent = sessionActive
+      ? 'Session active — ' + sessionImages.length + (sessionImages.length === 1 ? ' image' : ' images') + ' captured — ~' + sizeText
+      : sessionImages.length + (sessionImages.length === 1 ? ' image' : ' images') + ' waiting to export — ~' + sizeText;
+
+    if (sessionTotalBytes >= SESSION_SIZE_WARNING_BYTES) {
+      sessionSizeWarningEl.classList.remove('hidden');
+      sessionSizeWarningEl.textContent = 'Large session — export soon to avoid excessive memory use.';
+    } else {
+      sessionSizeWarningEl.classList.add('hidden');
+    }
+
+    imageCountPanel.textContent = 'Images captured: ' + sessionImages.length;
+  }
+
+  btnCapture.addEventListener('click', function () {
+    if (captureBusy || !sessionActive || !video.videoWidth) return;
+    captureBusy = true;
+    btnCapture.disabled = true;
+
+    // Immediate visual confirmation that the tap registered, independent
+    // of how long JPEG encoding takes — this is what a double-tap while
+    // still "flashed" would tell you didn't happen (button was disabled
+    // above, so a second tap during this window is a no-op, not a second
+    // capture).
+    btnCapture.classList.add('flash');
+    setTimeout(function () { btnCapture.classList.remove('flash'); }, 250);
+
+    var nativeW = video.videoWidth, nativeH = video.videoHeight;
+    var rotDeg = effectiveRotationDeg(nativeW, nativeH);
+    var oriented = orientedDims(nativeW, nativeH, rotDeg);
+    var captureTime = new Date();
+
+    captureCanvas.width = oriented.w;
+    captureCanvas.height = oriented.h;
+    drawRotatedFrame(captureCtx, oriented.w, oriented.h, rotDeg);
+
+    captureCanvas.toBlob(function (blob) {
+      // Drop the offscreen canvas's pixel buffer as soon as practical —
+      // the JPEG Blob is what's kept, not the raw canvas bitmap.
+      captureCanvas.width = 0;
+      captureCanvas.height = 0;
+
+      if (!blob) {
+        captureBusy = false;
+        btnCapture.disabled = !sessionActive;
+        captureNote.classList.remove('hidden');
+        captureNote.textContent = 'No image data produced — try again.';
+        return;
+      }
+
+      sessionSeq++;
+      var name = 'dartfeed_v04_setup_test_' + timestampTag(captureTime) + '_' + pad3(sessionSeq) + '.jpg';
+      sessionImages.push({ name: name, blob: blob, date: captureTime });
+      sessionTotalBytes += blob.size; // actual Blob size, not an estimate from resolution
+
+      captureBusy = false;
+      btnCapture.disabled = !sessionActive;
+      updateSessionStatus();
+    }, 'image/jpeg', 0.92);
+  });
+
+  function startSession() {
+    sessionActive = true;
+    sessionImages = [];
+    sessionSeq = 0;
+    sessionTotalBytes = 0;
+    sessionStartTime = new Date();
+    btnSession.textContent = 'END SESSION & EXPORT ZIP';
+    btnCapture.disabled = !video.videoWidth;
+    captureNote.classList.add('hidden');
+    updateSessionStatus();
+  }
+
+  function discardSessionAndReset() {
+    sessionImages = []; // drop every remaining Blob reference
+    sessionActive = false;
+    sessionSeq = 0;
+    sessionTotalBytes = 0;
+    btnSession.disabled = false;
+    btnSession.textContent = 'START SESSION';
+    btnCapture.disabled = true;
+    updateSessionStatus();
+  }
+
+  function endSessionAndExport() {
+    if (sessionImages.length === 0) {
+      discardSessionAndReset();
+      captureNote.classList.remove('hidden');
+      captureNote.textContent = 'Session ended — no images were captured, nothing to export.';
+      return;
+    }
+
+    btnSession.disabled = true;
+    btnCapture.disabled = true;
+    btnSession.textContent = 'EXPORTING ZIP…';
+
+    var count = sessionImages.length;
+    var zipName = 'dartfeed_v04_session_' + timestampTag(sessionStartTime || new Date()) + '.zip';
+
+    buildZipBlob(sessionImages).then(function (zipBlob) {
+      var sizeKB = Math.round(zipBlob.size / 1024);
+
+      function onExported(via) {
+        zipBlob = null;
+        discardSessionAndReset();
+        captureNote.classList.remove('hidden');
+        captureNote.textContent =
+          'EXPORTED — ' + count + (count === 1 ? ' image' : ' images') + ' in ' + zipName + '\n' +
+          '(~' + sizeKB + ' KB, native resolution, unresized)\n' +
+          'Handed to ' + via + ' — not retained by this page.';
+      }
+
+      function onExportKept(message) {
+        // Keep the captured images so "End Session" can be retried
+        // without recapturing anything.
+        btnSession.disabled = false;
+        btnSession.textContent = 'END SESSION & EXPORT ZIP';
+        btnCapture.disabled = !sessionActive;
+        captureNote.classList.remove('hidden');
+        captureNote.textContent = message;
+      }
+
+      function exportViaDownload() {
+        var url = URL.createObjectURL(zipBlob);
+        try {
+          var a = document.createElement('a');
+          a.href = url; a.download = zipName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } catch (e) {
+          URL.revokeObjectURL(url);
+          onExportKept('ZIP export failed (' + (e && e.message) + ') — your ' + count + ' captured images are still held; try End Session again.');
+          return;
+        }
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+        onExported('Download');
+      }
+
+      var canShareZip = false, zipFile = null;
+      try {
+        zipFile = new File([zipBlob], zipName, { type: 'application/zip' });
+        canShareZip = !!(navigator.canShare && navigator.share && navigator.canShare({ files: [zipFile] }));
+      } catch (e) { canShareZip = false; }
+
+      if (canShareZip) {
+        navigator.share({ files: [zipFile], title: zipName }).then(function () {
+          zipFile = null;
+          onExported('Share sheet');
+        }).catch(function (err) {
+          zipFile = null;
+          if (err && err.name === 'AbortError') {
+            onExportKept('Export cancelled — your ' + count + ' captured images are still held; End Session again when ready.');
+            return;
+          }
+          // Do not silently fall back to storing the ZIP locally in the
+          // page — fall back to the explicit download handoff instead.
+          exportViaDownload();
+        });
+      } else {
+        exportViaDownload();
+      }
+    }).catch(function (err) {
+      btnSession.disabled = false;
+      btnSession.textContent = 'END SESSION & EXPORT ZIP';
+      btnCapture.disabled = !sessionActive;
+      captureNote.classList.remove('hidden');
+      captureNote.textContent = 'ZIP build failed (' + (err && err.message) + ') — your ' + count + ' captured images are still held; try End Session again.';
+    });
+  }
+
+  btnSession.addEventListener('click', function () {
+    if (!sessionActive) startSession();
+    else endSessionAndExport();
+  });
+
+  startCamera();
+})();
+</script>
+</body>
+</html>
